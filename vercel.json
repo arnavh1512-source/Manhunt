@@ -1,3 +1,6 @@
 {
+  "installCommand": "npm install",
+  "buildCommand": "node scripts/fetch-assets.mjs && npx expo export --platform web",
+  "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
