@@ -18,7 +18,11 @@ An Expo Router app (iOS, Android and web) with real multiplayer: friends join fr
 
 ## Backend
 
-Supabase (project `scram`). The schema and all game rules live in `supabase/schema.sql`. The app calls those functions over HTTPS (`src/online/api.ts`) and polls `get_state` every two seconds; the server decides pings and the winner and only returns what each player is allowed to see. Point the app at another project with `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_KEY`.
+Convex (project `scram`). The schema is in `convex/schema.ts` and all game rules in `convex/game.ts`. Phones subscribe to `game.state`, which only returns what that player is allowed to see, and update live. Pings, the end of the round and the out-of-zone check run on Convex's scheduler.
+
+- `npx convex dev` runs against your dev deployment (written to `.env.local`)
+- `npx convex deploy` pushes the functions to production (`wary-bandicoot-758`), which the app uses by default
+- Point the app elsewhere with `EXPO_PUBLIC_CONVEX_URL`
 
 Maps use Esri's light and dark gray canvas tiles with attribution.
 
@@ -36,9 +40,10 @@ npx expo start        # then press i, a or w
 - `src/app/` — screens (Expo Router)
 - `src/components/` — UI kit, stylized map, SCRAM wordmark
 - `src/game/` — the shared game interface, practice engine and simulator
-- `src/online/` — Supabase calls, GPS and the online engine
+- `src/online/` — Convex client, GPS and the online engine
+- `convex/` — backend schema and game functions
 - `src/theme.ts` — colors and fonts from scramhideandseek.com
 
 ## Deploy
 
-Vercel builds the web version using `vercel.json`. `scripts/fetch-assets.mjs` downloads the Archivo fonts and the logo if they're missing.
+Vercel builds the web version using `vercel.json` on every push to `main`. Backend changes go out separately with `npx convex deploy`. `scripts/fetch-assets.mjs` downloads the Archivo fonts and the logo if they're missing.

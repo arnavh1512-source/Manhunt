@@ -2,7 +2,7 @@ import { ConvexReactClient } from "convex/react";
 import { ConvexError } from "convex/values";
 
 // The deployment URL is public; every game function checks the player's secret.
-export const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL ?? "https://CONVEX_DEPLOYMENT.convex.cloud";
+export const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL ?? "https://wary-bandicoot-758.convex.cloud";
 
 export const convex = new ConvexReactClient(CONVEX_URL);
 
