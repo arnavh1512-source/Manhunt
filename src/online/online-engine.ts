@@ -1,47 +1,60 @@
-// Online mode: state comes from the Supabase game functions, polled every couple
-// of seconds; this phone reports its own GPS while a round runs.
+// Online mode: game state streams live from Convex (convex/game.ts); this phone
+// reports its own GPS while a round runs.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import type { Alert, Game } from "../game/engine";
 import { SHRINK_WARNING_S, nextShrinkAt, zoneRadiusAt } from "../game/sim";
 import { DEFAULT_SETTINGS, type ChatMessage, type Phase, type Ping, type Player, type RoleChoice, type Settings } from "../game/types";
-import { GameError, api, type ServerState, type Session } from "./api";
+import { errorText, type Session } from "./convex";
 import { toLocal, type LatLng } from "./geo";
 import { useDeviceLocation } from "./location";
 
 const SESSION_KEY = "scram.session";
-const POLL_MS = 2000;
 const LOCATION_MS = 3000;
 const NOWHERE = { x: NaN, y: NaN };
 
 let alertSeq = 0;
 
-function errorText(e: unknown) {
-  return e instanceof GameError ? e.message : "Something went wrong. Try again.";
-}
-
 export function useOnlineEngine(name: string | null): Game {
   const [session, setSession] = useState<Session | null>(null);
-  const [server, setServer] = useState<ServerState | null>(null);
-  const [offsetMs, setOffsetMs] = useState(0);
-  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [alert, setAlert] = useState<Alert | null>(null);
   const [tagPrompt, setTagPrompt] = useState(false);
   const [localSettings, setLocalSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [center, setCenter] = useState<LatLng | null>(null);
   const [wantsLocation, setWantsLocation] = useState(false);
   const [now, setNow] = useState(Date.now());
-
-  const lastMsg = useRef(0);
-  const round = useRef<number | null>(null);
   const prev = useRef<{ status?: string; lastPing?: number; huntStarted?: boolean; shrinkWarned?: number }>({});
-  const sessionRef = useRef(session);
-  sessionRef.current = session;
+
+  const auth = session ? { playerId: session.playerId as Id<"players">, secret: session.secret } : null;
+  const server = useQuery(api.game.state, auth ?? "skip");
+
+  const m = {
+    createGame: useMutation(api.game.createGame),
+    joinGame: useMutation(api.game.joinGame),
+    updateSettings: useMutation(api.game.updateSettings),
+    setChoice: useMutation(api.game.setChoice),
+    setReady: useMutation(api.game.setReady),
+    start: useMutation(api.game.start),
+    rematch: useMutation(api.game.rematch),
+    leave: useMutation(api.game.leave),
+    updateLocation: useMutation(api.game.updateLocation),
+    confirmTag: useMutation(api.game.confirmTag),
+    sendMessage: useMutation(api.game.sendMessage),
+  };
 
   const status = server?.game.status;
   const { pos: gps, status: locationStatus } = useDeviceLocation(wantsLocation || status === "live");
 
   const raise = (title: string, body: string) => setAlert({ id: ++alertSeq, title, body });
+
+  const saveSession = useCallback((s: Session | null) => {
+    setSession(s);
+    prev.current = {};
+    (s ? AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s)) : AsyncStorage.removeItem(SESSION_KEY)).catch(() => {});
+  }, []);
 
   // Restore a game in progress after the app reloads.
   useEffect(() => {
@@ -50,51 +63,10 @@ export function useOnlineEngine(name: string | null): Game {
       .catch(() => {});
   }, []);
 
-  const saveSession = useCallback((s: Session | null) => {
-    setSession(s);
-    lastMsg.current = 0;
-    round.current = null;
-    prev.current = {};
-    setChat([]);
-    setServer(null);
-    (s ? AsyncStorage.setItem(SESSION_KEY, JSON.stringify(s)) : AsyncStorage.removeItem(SESSION_KEY)).catch(() => {});
-  }, []);
-
-  const poll = useCallback(async () => {
-    const s = sessionRef.current;
-    if (!s) return;
-    try {
-      const st = await api.state(s, lastMsg.current);
-      if (sessionRef.current !== s) return;
-      setOffsetMs(Date.parse(st.now) - Date.now());
-      if (round.current !== st.game.round) {
-        // New round, new team chat.
-        round.current = st.game.round;
-        if (lastMsg.current) {
-          lastMsg.current = 0;
-          setChat([]);
-          return poll();
-        }
-      }
-      if (st.messages.length) {
-        lastMsg.current = st.messages[st.messages.length - 1].id;
-        setChat((c) => [
-          ...c,
-          ...st.messages.map((m) => ({ id: String(m.id), from: m.player_id === st.me ? "You" : m.from, text: m.body, at: Date.parse(m.at) })),
-        ]);
-      }
-      setServer(st);
-    } catch (e) {
-      if (e instanceof GameError && e.code === "not_in_game") saveSession(null);
-    }
-  }, [saveSession]);
-
+  // The server no longer knows this player (left, or the game is gone).
   useEffect(() => {
-    if (!session) return;
-    poll();
-    const id = setInterval(poll, POLL_MS);
-    return () => clearInterval(id);
-  }, [session, poll]);
+    if (session && server === null) saveSession(null);
+  }, [session, server, saveSession]);
 
   // Clock for countdowns while a round runs.
   useEffect(() => {
@@ -106,11 +78,11 @@ export function useOnlineEngine(name: string | null): Game {
   // Report this phone's position during the round.
   const lastSent = useRef(0);
   useEffect(() => {
-    if (!session || status !== "live" || !gps) return;
+    if (!auth || status !== "live" || !gps) return;
     if (Date.now() - lastSent.current < LOCATION_MS) return;
     lastSent.current = Date.now();
-    api.updateLocation(session, gps.lat, gps.lng).catch(() => {});
-  }, [session, status, gps]);
+    m.updateLocation({ ...auth, lat: gps.lat, lng: gps.lng }).catch(() => {});
+  }, [session, status, gps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Before a game exists, the host's own position is the default zone centre.
   useEffect(() => {
@@ -119,28 +91,27 @@ export function useOnlineEngine(name: string | null): Game {
 
   const g = server?.game;
   const settings: Settings = g
-    ? { zoneMeters: g.zone_m, roundMin: g.round_min, pingMin: g.ping_min, headStartMin: g.head_start_min, shrink: g.shrink }
+    ? { zoneMeters: g.zoneM, roundMin: g.roundMin, pingMin: g.pingMin, headStartMin: g.headStartMin, shrink: g.shrink }
     : localSettings;
-  const zoneCenter = g?.zone_lat != null && g.zone_lng != null ? { lat: g.zone_lat, lng: g.zone_lng } : center;
-  const startedMs = g?.started_at ? Date.parse(g.started_at) : null;
-  const t = startedMs ? Math.max(0, (now + offsetMs - startedMs) / 1000) : 0;
+  const zoneCenter = g?.zoneLat != null && g.zoneLng != null ? { lat: g.zoneLat, lng: g.zoneLng } : center;
+  const startedMs = g?.startedAt ?? null;
+  const t = startedMs ? Math.max(0, (now - startedMs) / 1000) : 0;
   const headStartS = settings.headStartMin * 60;
   const roundS = settings.roundMin * 60;
   const huntS = Math.max(0, t - headStartS);
-
   const phase: Phase = !g ? "lobby" : g.status === "over" ? "over" : g.status === "live" ? (t < headStartS ? "scatter" : "hunt") : "lobby";
 
   // Alerts, as they'd arrive on the lock screen.
   useEffect(() => {
     if (!server) return;
     const p = prev.current;
-    const me = server.players.find((x) => x.id === server.me);
+    const meRole = server.players.find((x) => x.id === server.me)?.role;
     if (server.game.status === "live") {
       const hunting = t >= headStartS;
       if (hunting && p.huntStarted === false) raise("Ready or not", "Here we come. The hunt is on.");
       p.huntStarted = hunting;
-      if (p.lastPing !== undefined && server.last_ping > p.lastPing) {
-        if (me?.role === "runner") raise("Ping!", "Your location was just sent to the hunters. Move!");
+      if (p.lastPing !== undefined && server.game.lastPing > p.lastPing) {
+        if (meRole === "runner") raise("Ping!", "Your location was just sent to the hunters. Move!");
         else raise("Ping!", `${server.pings.length} runner${server.pings.length === 1 ? "" : "s"} just lit up.`);
       }
       const shrinkAt = nextShrinkAt(settings, huntS);
@@ -153,7 +124,7 @@ export function useOnlineEngine(name: string | null): Game {
     }
     if (p.status === "live" && server.game.status === "over") raise("Time!", "Round over. Open SCRAM to see how it went.");
     p.status = server.game.status;
-    p.lastPing = server.last_ping;
+    p.lastPing = server.game.lastPing;
   }, [server, t >= headStartS]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const players: Player[] = useMemo(() => {
@@ -177,9 +148,14 @@ export function useOnlineEngine(name: string | null): Game {
   const pings: Ping[] = useMemo(
     () =>
       server && zoneCenter && startedMs
-        ? server.pings.map((k) => ({ playerId: k.player_id, pos: toLocal(k, zoneCenter), at: (Date.parse(k.at) - startedMs) / 1000 }))
+        ? server.pings.map((k) => ({ playerId: k.playerId, pos: toLocal(k, zoneCenter), at: (k.at - startedMs) / 1000 }))
         : [],
     [server, zoneCenter?.lat, zoneCenter?.lng, startedMs], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  const chat: ChatMessage[] = useMemo(
+    () => server?.messages.map((x) => ({ id: x.id, from: x.playerId === server.me ? "You" : x.from, text: x.body, at: x.at })) ?? [],
+    [server],
   );
 
   const you = players.find((p) => p.isYou);
@@ -189,7 +165,6 @@ export function useOnlineEngine(name: string | null): Game {
   const run = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
-      await poll();
       return null;
     } catch (e) {
       return errorText(e);
@@ -205,7 +180,7 @@ export function useOnlineEngine(name: string | null): Game {
     wantLocation: () => setWantsLocation(true),
 
     code: session?.code ?? null,
-    isHost: !!server && server.game.host_player === server.me,
+    isHost: !!server && server.game.hostPlayer === server.me,
     phase,
     players,
     you,
@@ -226,57 +201,51 @@ export function useOnlineEngine(name: string | null): Game {
     shrinkIn: shrinkAt === null ? null : shrinkAt - huntS,
     runners: players.filter((p) => p.role === "runner"),
     hunters: players.filter((p) => p.role === "hunter"),
-    liveOutside: server?.players.filter((p) => p.live_outside).map((p) => p.id) ?? [],
+    liveOutside: server?.players.filter((p) => p.liveOutside).map((p) => p.id) ?? [],
 
     hostGame: async () => {
       if (!name) return "Add your name first.";
       if (!center) return "Waiting for your location to place the zone.";
-      try {
-        const s = await api.createGame(name);
-        await api.updateSettings(s, {
-          zone_lat: center.lat,
-          zone_lng: center.lng,
-          zone_m: localSettings.zoneMeters,
-          round_min: localSettings.roundMin,
-          ping_min: localSettings.pingMin,
-          head_start_min: localSettings.headStartMin,
+      return run(async () => {
+        const s = await m.createGame({ name });
+        await m.updateSettings({
+          playerId: s.playerId,
+          secret: s.secret,
+          zoneLat: center.lat,
+          zoneLng: center.lng,
+          zoneM: localSettings.zoneMeters,
+          roundMin: localSettings.roundMin,
+          pingMin: localSettings.pingMin,
+          headStartMin: localSettings.headStartMin,
           shrink: localSettings.shrink,
         });
         saveSession(s);
-        return null;
-      } catch (e) {
-        return errorText(e);
-      }
+      });
     },
     joinGame: async (code) => {
       if (!name) return "Add your name first.";
-      try {
-        saveSession(await api.joinGame(code, name));
-        return null;
-      } catch (e) {
-        return errorText(e);
-      }
+      return run(async () => saveSession(await m.joinGame({ code, name })));
     },
-    start: () => run(() => api.start(session!)),
-    rematch: () => run(() => api.rematch(session!)),
+    start: () => run(() => m.start(auth!)),
+    rematch: () => run(() => m.rematch(auth!)),
     chooseRole: (choice: RoleChoice) => {
-      if (session) run(() => api.setChoice(session, choice));
+      if (auth) run(() => m.setChoice({ ...auth, choice }));
     },
     setReady: (ready) => {
-      if (session) run(() => api.setReady(session, ready));
+      if (auth) run(() => m.setReady({ ...auth, ready }));
     },
-    sendChat: (text) => {
-      if (session) run(() => api.sendMessage(session, text));
+    sendChat: (body) => {
+      if (auth) run(() => m.sendMessage({ ...auth, body }));
     },
     dismissAlert: () => setAlert(null),
     confirmTagged: () => {
       setTagPrompt(false);
-      if (session) run(() => api.confirmTag(session));
+      if (auth) run(() => m.confirmTag(auth));
     },
     denyTagged: () => setTagPrompt(false),
     reportTag: () => setTagPrompt(true),
     leave: () => {
-      if (session) api.leave(session).catch(() => {});
+      if (auth) m.leave(auth).catch(() => {});
       saveSession(null);
     },
   };
