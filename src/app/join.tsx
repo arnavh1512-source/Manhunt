@@ -9,21 +9,31 @@ import { colors } from "../theme";
 export default function Join() {
   const { joinGame } = useGame();
   const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const join = async () => {
+    setBusy(true);
+    setError(null);
+    const err = await joinGame(code);
+    setBusy(false);
+    if (err) setError(err);
+    else router.replace("/lobby");
+  };
   const input = useRef<TextInputInstance>(null);
 
   return (
     <Screen
       back
       footer={
-        <Button
-          kind="red"
-          label="Join game"
-          disabled={code.length < 6}
-          onPress={() => {
-            joinGame(code);
-            router.replace("/lobby");
-          }}
-        />
+        <>
+          {error ? (
+            <T size={13} color={colors.redText} style={{ textAlign: "center" }}>
+              {error}
+            </T>
+          ) : null}
+          <Button kind="red" label={busy ? "Joining…" : "Join game"} disabled={code.length < 6 || busy} onPress={join} />
+        </>
       }
     >
       <Eyebrow>Join</Eyebrow>
@@ -61,7 +71,11 @@ export default function Join() {
       <TextInput
         ref={input}
         value={code}
-        onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+        onChangeText={(t) => {
+          setError(null);
+          setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6));
+        }}
+        onSubmitEditing={() => code.length === 6 && join()}
         autoCapitalize="characters"
         autoCorrect={false}
         autoFocus

@@ -40,7 +40,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "SCRAM shares your location with your team, and with hunters at each ping, while a round is running."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

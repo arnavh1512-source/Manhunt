@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -9,6 +10,12 @@ import { colors } from "../theme";
 export default function Result() {
   const g = useGame();
   const role = g.you?.role;
+
+  // The host restarted: follow everyone back to the lobby.
+  useEffect(() => {
+    if (g.phase === "lobby" && g.code) router.replace("/lobby");
+    if (!g.code) router.replace("/");
+  }, [g.phase, g.code]);
   const won = g.winner !== null && role === g.winner;
   const survived = role === "runner" && !g.you?.tagged;
 
@@ -20,14 +27,13 @@ export default function Result() {
       bg={won ? colors.red : colors.ink}
       footer={
         <>
-          <Button
-            kind="white"
-            label="Play again"
-            onPress={() => {
-              g.isHost ? g.hostGame() : g.joinGame(g.code ?? "");
-              router.replace("/lobby");
-            }}
-          />
+          {g.isHost ? (
+            <Button kind="white" label="Play again" onPress={() => g.rematch()} />
+          ) : (
+            <T v="bold" size={14} color={colors.white} style={{ textAlign: "center", opacity: 0.85 }}>
+              Waiting for the host to start another round…
+            </T>
+          )}
           <Button
             kind="outline"
             label="Done"

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Pressable, Share, View } from "react-native";
 import { router } from "expo-router";
 import { Screen } from "../components/screen";
@@ -18,6 +19,14 @@ const choiceLabel: Record<RoleChoice, string> = { hunter: "Hunter", runner: "Run
 export default function Lobby() {
   const g = useGame();
   const { code, settings, players, you, isHost } = g;
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Everyone moves on together once the host starts the round.
+  useEffect(() => {
+    if (g.phase === "scatter" || g.phase === "hunt") router.replace("/role");
+  }, [g.phase]);
+
   if (!code || !you) {
     return (
       <Screen back>
@@ -34,9 +43,12 @@ export default function Lobby() {
   const allReady = players.every((p) => p.ready);
   const canStart = isHost && check.ok && allReady;
 
-  const start = () => {
-    g.start();
-    router.replace("/role");
+  const start = async () => {
+    setBusy(true);
+    setError(null);
+    const err = await g.start();
+    setBusy(false);
+    if (err) setError(err);
   };
 
   return (
@@ -44,7 +56,11 @@ export default function Lobby() {
       back
       footer={
         <>
-          {!check.ok ? (
+          {error ? (
+            <T size={13} color={colors.redText} style={{ textAlign: "center" }}>
+              {error}
+            </T>
+          ) : !check.ok ? (
             <T size={13} color={colors.redText} style={{ textAlign: "center" }}>
               {check.reason}
             </T>
@@ -52,14 +68,26 @@ export default function Lobby() {
             <T size={13} color={colors.ink3} style={{ textAlign: "center" }}>
               Waiting for everyone to tap “I’m ready”.
             </T>
+          ) : !isHost ? (
+            <T size={13} color={colors.ink3} style={{ textAlign: "center" }}>
+              Everyone’s ready. Waiting for the host to start.
+            </T>
           ) : null}
           <View style={{ flexDirection: "row", gap: 10 }}>
             <Button style={{ flex: 1 }} kind={you.ready ? "ghost" : "ink"} label={you.ready ? "Not ready" : "I’m ready"} onPress={() => g.setReady(!you.ready)} />
-            {isHost ? <Button style={{ flex: 1 }} kind="red" label="Let’s go" disabled={!canStart} onPress={start} /> : null}
+            {isHost ? <Button style={{ flex: 1 }} kind="red" label={busy ? "Starting…" : "Let’s go"} disabled={!canStart || busy} onPress={start} /> : null}
           </View>
-          {!isHost && check.ok && allReady ? (
-            <Button kind="red" label="Host started · Continue" onPress={start} />
-          ) : null}
+          <Pressable
+            onPress={() => {
+              g.leave();
+              router.replace("/");
+            }}
+            style={{ alignSelf: "center", padding: 6 }}
+          >
+            <T v="bold" size={13} color={colors.ink3}>
+              Leave game
+            </T>
+          </Pressable>
         </>
       }
     >
@@ -139,11 +167,10 @@ export default function Lobby() {
         <Card style={{ paddingVertical: 6 }}>
           {players.map((p, i) => (
             <View key={p.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderColor: colors.fill }}>
-              <Avatar name={p.name} bg={p.isYou ? colors.red : colors.ink} />
+              <Avatar name={p.isYou ? "You" : p.name} bg={p.isYou ? colors.red : colors.ink} />
               <View style={{ flex: 1 }}>
                 <T v="bold" size={16}>
                   {p.isYou ? "You" : p.name}
-                  {p.isYou && isHost ? " · host" : ""}
                 </T>
                 <T size={13} color={colors.ink4}>
                   {choiceLabel[p.choice]}

@@ -18,9 +18,10 @@ export default function Game() {
   const [unread, setUnread] = useState(0);
 
   useEffect(() => {
-    if (g.phase === "over") router.replace("/result");
-    if (g.phase === "lobby") router.replace("/");
-  }, [g.phase]);
+    if (!g.code) router.replace("/");
+    else if (g.phase === "over") router.replace("/result");
+    else if (g.phase === "lobby") router.replace("/lobby");
+  }, [g.phase, g.code]);
 
   useEffect(() => {
     if (radioOpen) {
@@ -60,7 +61,15 @@ export default function Game() {
   return (
     <View style={{ flex: 1, backgroundColor: hunter ? colors.night : colors.fill }}>
       <StatusBar style={hunter ? "light" : "dark"} />
-      <CityMap zoneR={g.zoneR} nextZoneR={nextZoneR} markers={markers} dark={hunter} viewR={g.settings.zoneMeters / 2 * 1.15} />
+      <CityMap
+        center={g.zoneCenter}
+        zoneR={g.zoneR}
+        nextZoneR={nextZoneR}
+        markers={markers}
+        dark={hunter}
+        viewR={(g.settings.zoneMeters / 2) * 1.15}
+        attributionBottom={insets.bottom + 76}
+      />
 
       {/* Top status */}
       <View style={{ position: "absolute", top: insets.top + 10, left: 12, right: 12, gap: 8 }}>
@@ -85,7 +94,9 @@ export default function Game() {
             </T>
           </View>
         </View>
-        {g.shrinkIn !== null && g.shrinkIn <= 60 && !scatter ? (
+        {g.locationStatus === "denied" || g.locationStatus === "unavailable" ? (
+          <Chip text={g.locationStatus === "denied" ? "Location is off. Allow it so your team can see you." : "Can’t get your location right now."} />
+        ) : g.shrinkIn !== null && g.shrinkIn <= 60 && !scatter ? (
           <Chip text={`Zone shrinks in ${clock(g.shrinkIn)}`} />
         ) : !scatter && !out ? (
           <Chip text={hunter ? "Tag them in person. They confirm it." : "Keep moving between pings."} subtle />
