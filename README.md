@@ -1,56 +1,36 @@
-# Welcome to your Expo app 👋
+# SCRAM
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Real-life hide-and-seek. Runners hide, hunters chase, the phone referees.
 
-## Get started
+Live web build: https://scram-kappa.vercel.app
 
-1. Install dependencies
+## What's here
 
-   ```bash
-   npm install
-   ```
+An Expo Router app (iOS, Android and web) covering the whole game flow:
 
-2. Start the app
+- **Sign in** with an emailed code
+- **Host**: place the zone on the map and set zone size, round length, ping interval, head start and an optional shrinking zone
+- **Join** with a six-character code
+- **Lobby**: pick Hunter, Runner or Random; teams must be balanced before the host can start
+- **Game**: hunters see ping snapshots on a dark map, runners see their team live, plus zone-shrink warnings, Team Radio chat and tag confirmation
+- **Results**
 
-   ```bash
-   npx expo start
-   ```
+The other players are simulated by `src/game/sim.ts` so the app can be played on one device. `DEMO_SPEED` there speeds up the game clock (12× by default). Real multiplayer, GPS and email codes are not wired up yet.
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Run it
 
 ```bash
-npm run reset-project
+npm install
+npx expo start        # then press i, a or w
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+## Project layout
 
-### Other setup steps
+- `src/app/` — screens (Expo Router)
+- `src/components/` — UI kit, stylized map, SCRAM wordmark
+- `src/game/` — game state, rules and the local simulator
+- `src/theme.ts` — colors and fonts from scramhideandseek.com
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Deploy
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Vercel builds the web version using `vercel.json`. `scripts/fetch-assets.mjs` downloads the Archivo fonts and the logo if they're missing.
